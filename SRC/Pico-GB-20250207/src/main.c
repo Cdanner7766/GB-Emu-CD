@@ -15,9 +15,9 @@
 
 // Peanut-GB emulator settings
 #define ENABLE_LCD	1
-#define ENABLE_SOUND	1
+#define ENABLE_SOUND	0
 #define ENABLE_SDCARD	0
-#define PEANUT_GB_HIGH_LCD_ACCURACY 1
+#define PEANUT_GB_HIGH_LCD_ACCURACY 0
 #define PEANUT_GB_USE_BIOS 0
 
 /* Use DMA for all drawing to LCD. Benefits aren't fully realised at the moment
@@ -621,7 +621,7 @@ int main(void)
 	clock_configure(clk_peri, 0,
 			CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS,
 			125 * 1000 * 1000, 125 * 1000 * 1000);
-	spi_init(spi0, 4*1000*1000);
+	spi_init(spi0, 15*1000*1000);
 	spi_set_format(spi0, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
 
 #if ENABLE_SOUND
