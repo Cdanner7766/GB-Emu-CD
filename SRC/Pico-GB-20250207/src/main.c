@@ -16,7 +16,7 @@
 // Peanut-GB emulator settings
 #define ENABLE_LCD	1
 #define ENABLE_SOUND	1
-#define ENABLE_SDCARD	1
+#define ENABLE_SDCARD	0
 #define PEANUT_GB_HIGH_LCD_ACCURACY 1
 #define PEANUT_GB_USE_BIOS 0
 
@@ -645,10 +645,10 @@ int main(void)
 while(true)
 {
 #if ENABLE_LCD
-#if ENABLE_SDCARD
-	/* ROM File selector */
 	mk_ili9225_init();
 	mk_ili9225_fill(0x0000);
+#if ENABLE_SDCARD
+	/* ROM File selector */
 	rom_file_selector();
 #endif
 #endif
