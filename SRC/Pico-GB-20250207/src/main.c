@@ -92,13 +92,9 @@
 uint16_t *stream;
 #endif
 
-/** Definition of ROM data
- * We're going to erase and reprogram a region 1Mb from the start of the flash
- * Once done, we can access this at XIP_BASE + 1Mb.
- * Game Boy DMG ROM size ranges from 32768 bytes (e.g. Tetris) to 1,048,576 bytes (e.g. Pokemod Red)
- */
-#define FLASH_TARGET_OFFSET (1024 * 1024)
-const uint8_t *rom = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET);
+/* ROM is compiled directly into the firmware as a C array in flash. */
+extern const unsigned char rom_data[];
+const uint8_t *rom = (const uint8_t *) rom_data;
 static unsigned char rom_bank0[65536];
 
 static uint8_t ram[32768];
