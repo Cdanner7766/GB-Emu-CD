@@ -3,6 +3,7 @@
 #include "hardware/clocks.h"
 #include "mk_ili9225.h"
 #include "sdcard.h"
+#include "i2s.h"
 
 /* LCD pins */
 #define GPIO_CS   17
@@ -21,6 +22,10 @@
 #define GPIO_B      7
 #define GPIO_SELECT 8
 #define GPIO_START  9
+
+/* MAX98357A i2s pins (matches emulator wiring) */
+#define I2S_DATA_PIN       26
+#define I2S_CLOCK_PIN_BASE 27   /* BCLK=27, LRCLK=28 */
 
 /* RGB565 colours */
 #define BLACK   0x0000
@@ -64,7 +69,6 @@ static void gpio_init_all(void)
     }
 }
 
-/* Draw a fixed-width label then a status value on the same row */
 static void draw_row(uint8_t y, const char *label, const char *value, uint16_t val_color)
 {
     mk_ili9225_text((char *)label, 4,  y, WHITE, BLACK);
@@ -72,21 +76,20 @@ static void draw_row(uint8_t y, const char *label, const char *value, uint16_t v
     mk_ili9225_text((char *)value, 80, y, val_color, BLACK);
 }
 
-/* ---- Phase 1: colour flash --- */
+/* ---- Phase 1: colour flash ---- */
 static void phase_color_flash(void)
 {
-    const uint16_t cols[]   = { RED,   GREEN,  BLUE  };
-    const char    *names[]  = { "RED", "GREEN","BLUE" };
+    const uint16_t cols[]  = { RED,   GREEN,  BLUE  };
+    const char    *names[] = { "RED", "GREEN","BLUE" };
 
     for (int i = 0; i < 3; i++) {
         mk_ili9225_fill(cols[i]);
-        /* Centre-ish text so we can confirm pixel addressing works */
         mk_ili9225_text((char *)names[i], 68, 104, BLACK, cols[i]);
         sleep_ms(1000);
     }
 }
 
-/* ---- Phase 2: SD card ----- */
+/* ---- Phase 2: SD card ---- */
 static bool phase_sdcard(void)
 {
     sd_card_t *pSD = sd_get_by_num(0);
@@ -98,17 +101,66 @@ static bool phase_sdcard(void)
     return false;
 }
 
-/* ---- Phase 3: button monitor (runs forever) ---- */
+/* ---- Phase 3: audio tone ---- */
+
+/*
+ * 440 Hz sine wave lookup table at 44100 Hz sample rate.
+ * 100 samples per cycle (44100/440 ≈ 100.2), 16-bit signed.
+ * Amplitude set to ~50% of full scale to avoid clipping on small speaker.
+ */
+static const int16_t sine_table[100] = {
+       0,  2057,  4107,  6140,  8148,  10125, 12062, 13952, 15786, 17557,
+   19259, 20886, 22430, 23886, 25248, 26510, 27666, 28711, 29641, 30451,
+   31137, 31696, 32124, 32418, 32577, 32599, 32483, 32229, 31839, 31313,
+   30654, 29864, 28947, 27908, 26750, 25479, 24099, 22616, 21034, 19361,
+   17603, 15766, 13857, 11883,  9851,  7767,  5638,  3472,  1276,  -945,
+   -3163, -5367, -7549, -9699,-11809,-13869,-15871,-17805,-19662,-21432,
+  -23108,-24681,-26143,-27486,-28703,-29786,-30729,-31526,-32172,-32662,
+  -32992,-33158,-33160,-32997,-32670,-32181,-31532,-30726,-29766,-28657,
+  -27403,-26009,-24481,-22824,-21045,-19148,-17141,-15030,-12820,-10520,
+   -8134, -5671, -3136,  -536,  2079,  4697,  7309,  9904, 12472, 14998
+};
+
+static i2s_config_t i2s_cfg;
+
+static void phase_audio_init(void)
+{
+    i2s_cfg = i2s_get_default_config();
+    i2s_cfg.sample_freq    = 44100;
+    i2s_cfg.channel_count  = 2;
+    i2s_cfg.data_pin       = I2S_DATA_PIN;
+    i2s_cfg.clock_pin_base = I2S_CLOCK_PIN_BASE;
+    i2s_cfg.dma_trans_count = 100;
+    i2s_init(&i2s_cfg);
+}
+
+/* Play a 440 Hz tone for duration_ms milliseconds */
+static void play_tone(uint32_t duration_ms)
+{
+    /* Stereo buffer: left + right interleaved as 32-bit words */
+    static uint32_t buf[100];
+    for (int i = 0; i < 100; i++) {
+        int16_t s = sine_table[i];
+        buf[i] = ((uint32_t)(uint16_t)s << 16) | (uint16_t)s;
+    }
+
+    uint32_t end = duration_ms;
+    /* Each buffer is 100 samples at 44100 Hz ≈ 2.27ms */
+    uint32_t iterations = (end * 44100) / (100 * 1000);
+    for (uint32_t i = 0; i < iterations; i++)
+        i2s_dma_write(&i2s_cfg, (const uint8_t *)buf);
+}
+
+/* ---- Phase 4: button monitor ---- */
 static void phase_buttons(void)
 {
     const uint    gpios[] = { GPIO_UP, GPIO_DOWN, GPIO_LEFT, GPIO_RIGHT,
                                GPIO_A,  GPIO_B,    GPIO_SELECT, GPIO_START };
     const char   *names[] = { "UP:    ", "DOWN:  ", "LEFT:  ", "RIGHT: ",
                                "A:     ", "B:     ", "SELECT:", "START: " };
-    const uint8_t ys[]    = { 100, 112, 124, 136, 148, 160, 172, 184 };
+    const uint8_t ys[]    = { 116, 128, 140, 152, 164, 176, 188, 200 };
 
-    /* Draw static labels once */
-    mk_ili9225_text("BUTTONS (press each):", 4, 88, YELLOW, BLACK);
+    mk_ili9225_text("BUTTONS (press each):", 4, 104, YELLOW, BLACK);
     for (int i = 0; i < 8; i++)
         mk_ili9225_text((char *)names[i], 4, ys[i], WHITE, BLACK);
 
@@ -130,7 +182,7 @@ int main(void)
     stdio_init_all();
     gpio_init_all();
 
-    /* SPI at 4 MHz — safe for jumper wires */
+    /* SPI at 4 MHz */
     clock_configure(clk_peri, 0,
         CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS,
         125 * 1000 * 1000, 125 * 1000 * 1000);
@@ -138,8 +190,6 @@ int main(void)
     spi_set_format(spi0, 16, SPI_CPOL_0, SPI_CPHA_0, SPI_MSB_FIRST);
 
     mk_ili9225_init();
-
-    /* Phase 1 — colour flash to confirm LCD + SPI are alive */
     phase_color_flash();
 
     /* Status screen */
@@ -149,16 +199,37 @@ int main(void)
 
     draw_row(20, "LCD:   ", "OK", GREEN);
 
-    /* Phase 2 — SD card */
+    /* SD card */
     draw_row(36, "SD:    ", "testing...", YELLOW);
     bool sd_ok = phase_sdcard();
     draw_row(36, "SD:    ", sd_ok ? "OK" : "FAIL", sd_ok ? GREEN : RED);
 
-    mk_ili9225_fill_rect(0, 52, 176, 1, GREY);   /* divider */
+    /* Audio */
+    draw_row(52, "AUDIO: ", "init...", YELLOW);
+    phase_audio_init();
+    draw_row(52, "AUDIO: ", "playing...", YELLOW);
+    play_tone(2000);
 
-    /* Phase 3 — live button monitor */
+    /* Ask user to confirm they heard it */
+    draw_row(52, "AUDIO: ", "hear tone?", WHITE);
+    mk_ili9225_text("A=YES  B=NO", 4, 68, YELLOW, BLACK);
+
+    /* Wait for A or B to be pressed (active low) */
+    while (gpio_get(GPIO_A) && gpio_get(GPIO_B))
+        sleep_ms(10);
+    bool heard = !gpio_get(GPIO_A); /* A pressed = yes, B pressed = no */
+    /* Wait for release */
+    sleep_ms(50);
+    while (!gpio_get(GPIO_A) || !gpio_get(GPIO_B))
+        sleep_ms(10);
+
+    draw_row(52, "AUDIO: ", heard ? "OK" : "FAIL", heard ? GREEN : RED);
+    mk_ili9225_fill_rect(0, 68, 176, 8, BLACK);
+
+    mk_ili9225_fill_rect(0, 84, 176, 1, GREY); /* divider */
+
+    /* Button monitor */
     phase_buttons();
 
-    /* unreachable */
     return 0;
 }
