@@ -158,9 +158,9 @@ static void phase_buttons(void)
                                GPIO_A,  GPIO_B,    GPIO_SELECT, GPIO_START };
     const char   *names[] = { "UP:    ", "DOWN:  ", "LEFT:  ", "RIGHT: ",
                                "A:     ", "B:     ", "SELECT:", "START: " };
-    const uint8_t ys[]    = { 100, 112, 124, 136, 148, 160, 172, 184 };
+    const uint8_t ys[]    = { 76, 88, 100, 112, 124, 136, 148, 160 };
 
-    mk_ili9225_text("BUTTONS (press each):", 4, 104, YELLOW, BLACK);
+    mk_ili9225_text("BUTTONS (press each):", 4, 60, YELLOW, BLACK);
     for (int i = 0; i < 8; i++)
         mk_ili9225_text((char *)names[i], 4, ys[i], WHITE, BLACK);
 
