@@ -151,14 +151,14 @@ static void play_tone(uint32_t duration_ms)
         i2s_dma_write(&i2s_cfg, (const uint8_t *)buf);
 }
 
-/* ---- Phase 4: button monitor ---- */
+/* ---- Phase 3: button monitor ---- */
 static void phase_buttons(void)
 {
     const uint    gpios[] = { GPIO_UP, GPIO_DOWN, GPIO_LEFT, GPIO_RIGHT,
                                GPIO_A,  GPIO_B,    GPIO_SELECT, GPIO_START };
     const char   *names[] = { "UP:    ", "DOWN:  ", "LEFT:  ", "RIGHT: ",
                                "A:     ", "B:     ", "SELECT:", "START: " };
-    const uint8_t ys[]    = { 116, 128, 140, 152, 164, 176, 188, 200 };
+    const uint8_t ys[]    = { 100, 112, 124, 136, 148, 160, 172, 184 };
 
     mk_ili9225_text("BUTTONS (press each):", 4, 104, YELLOW, BLACK);
     for (int i = 0; i < 8; i++)
@@ -204,29 +204,7 @@ int main(void)
     bool sd_ok = phase_sdcard();
     draw_row(36, "SD:    ", sd_ok ? "OK" : "FAIL", sd_ok ? GREEN : RED);
 
-    /* Audio */
-    draw_row(52, "AUDIO: ", "init...", YELLOW);
-    phase_audio_init();
-    draw_row(52, "AUDIO: ", "playing...", YELLOW);
-    play_tone(2000);
-
-    /* Ask user to confirm they heard it */
-    draw_row(52, "AUDIO: ", "hear tone?", WHITE);
-    mk_ili9225_text("A=YES  B=NO", 4, 68, YELLOW, BLACK);
-
-    /* Wait for A or B to be pressed (active low) */
-    while (gpio_get(GPIO_A) && gpio_get(GPIO_B))
-        sleep_ms(10);
-    bool heard = !gpio_get(GPIO_A); /* A pressed = yes, B pressed = no */
-    /* Wait for release */
-    sleep_ms(50);
-    while (!gpio_get(GPIO_A) || !gpio_get(GPIO_B))
-        sleep_ms(10);
-
-    draw_row(52, "AUDIO: ", heard ? "OK" : "FAIL", heard ? GREEN : RED);
-    mk_ili9225_fill_rect(0, 68, 176, 8, BLACK);
-
-    mk_ili9225_fill_rect(0, 84, 176, 1, GREY); /* divider */
+    mk_ili9225_fill_rect(0, 52, 176, 1, GREY); /* divider */
 
     /* Button monitor */
     phase_buttons();
