@@ -533,15 +533,24 @@ void rom_file_selector() {
 			if(load_cart_rom_file(filename[selected])) {
 				break;
 			}
-			/* Load failed — show error on screen and let user try again */
+			/* Load failed — force SD re-init so the next attempt works */
+			sd_get_by_num(0)->m_Status = STA_NOINIT;
+			/* Show error and wait for button release before continuing */
 			mk_ili9225_fill(0x0000);
-			mk_ili9225_text("SD READ ERROR",4,80,0xF800,0x0000);
-			mk_ili9225_text("Press A to retry",4,96,0xFFFF,0x0000);
-			sleep_ms(2000);
-			/* Redisplay file list */
+			mk_ili9225_text("SD ERROR-RETRY",2,72,0xF800,0x0000);
+			mk_ili9225_text("Check SD wiring",2,88,0xFFFF,0x0000);
+			mk_ili9225_text("Press A again",2,104,0xFFFF,0x0000);
+			/* Wait for A/B to be released before re-entering the loop */
+			while(!gpio_get(GPIO_A) || !gpio_get(GPIO_B)) sleep_ms(10);
+			sleep_ms(500);
+			/* Redisplay file list (SD re-init happens inside f_mount) */
 			num_file=rom_file_selector_display_page(filename,num_page);
-			selected=0;
-			mk_ili9225_text(filename[selected],0,selected*8,0xFFFF,0xF800);
+			if(num_file > 0) {
+				selected=0;
+				mk_ili9225_text(filename[selected],0,selected*8,0xFFFF,0xF800);
+			} else {
+				mk_ili9225_text("No files found",2,120,0xF800,0x0000);
+			}
 		}
 		if(!down) {
 			/* select the next rom */
