@@ -222,16 +222,25 @@ void gb_error(struct gb_s *gb, const enum gb_error_e gb_err, const uint16_t addr
 #endif
 }
 
-#if ENABLE_LCD 
+#if ENABLE_LCD
 void core1_lcd_draw_line(const uint_fast8_t line)
 {
 	static uint16_t fb[LCD_WIDTH];
+	static uint32_t line_count = 0;
 
 	for(unsigned int x = 0; x < LCD_WIDTH; x++)
 	{
 		fb[x] = palette[(pixels_buffer[x] & LCD_PALETTE_ALL) >> 4]
 				[pixels_buffer[x] & 3];
 	}
+
+	/* Print diagnostics for the first two frames (lines 0-287) */
+	if(line_count < 288 && (line == 0 || line == 1 || line == 143))
+	{
+		printf("D line=%u px0=0x%02x fb0=0x%04x\n",
+			line, pixels_buffer[0], fb[0]);
+	}
+	if(line == 143) line_count += 144;
 
 	mk_ili9225_set_line(31, line + 16, LCD_WIDTH);
 	mk_ili9225_write_pixels(fb, LCD_WIDTH);
@@ -244,16 +253,13 @@ void main_core1(void)
 	union core_cmd cmd;
 
 	/* Initialise and control LCD on core 1. */
+	printf("D core1: init\n");
 	mk_ili9225_init();
-
-	/* Clear LCD screen. */
+	printf("D core1: fill\n");
 	mk_ili9225_fill(0x0000);
-
-	/* Set LCD window to DMG size. */
+	printf("D core1: fill_rect\n");
 	mk_ili9225_fill_rect(31,16,LCD_WIDTH,LCD_HEIGHT,0x0000);
-
-	// Sleep used for debugging LCD window.
-	//sleep_ms(1000);
+	printf("D core1: ready\n");
 
 	/* Handle commands coming from core0. */
 	while(1)
@@ -388,31 +394,39 @@ void load_cart_rom_file(char *filename) {
 	fr=f_open(&fil,filename,FA_READ);
 	if (fr==FR_OK) {
 		uint32_t flash_target_offset=FLASH_TARGET_OFFSET;
+		uint32_t total_bytes=0;
 		for(;;) {
 			f_read(&fil,buffer,sizeof buffer,&br);
 			if(br==0) break; /* end of file */
 
-			printf("I Erasing target region...\n");
+			printf("I Erasing flash @ 0x%lx...\n", flash_target_offset);
 			flash_range_erase(flash_target_offset,FLASH_SECTOR_SIZE);
-			printf("I Programming target region...\n");
+			printf("I Programming %u bytes @ 0x%lx...\n", br, flash_target_offset);
 			flash_range_program(flash_target_offset,buffer,FLASH_SECTOR_SIZE);
-			
-			/* Read back target region and check programming */
-			printf("I Done. Reading back target region...\n");
-			for(uint32_t i=0;i<FLASH_SECTOR_SIZE;i++) {
-				if(rom[flash_target_offset+i]!=buffer[i]) {
-					mismatch=true;
-				}
-			}
 
-			/* Next sector */
+			/* Verify: read back from XIP and compare */
+			const uint8_t *written = (const uint8_t *)(XIP_BASE + flash_target_offset);
+			uint32_t sector_mismatches = 0;
+			for(uint32_t i=0;i<br;i++) {
+				if(written[i]!=buffer[i]) sector_mismatches++;
+			}
+			if(sector_mismatches)
+				printf("E Sector verify FAILED: %lu mismatches\n", sector_mismatches);
+			else
+				printf("I Sector verify OK\n");
+			mismatch |= (sector_mismatches > 0);
+
+			total_bytes += br;
 			flash_target_offset+=FLASH_SECTOR_SIZE;
 		}
-		if(mismatch) {
-	        printf("I Programming successful!\n");
-		} else {
-			printf("E Programming failed!\n");
-		}
+		printf("I ROM load %s: %lu bytes total\n",
+			mismatch ? "FAILED" : "OK", total_bytes);
+
+		/* Print first 8 bytes of ROM from flash for sanity check */
+		const uint8_t *rom_check = (const uint8_t *)(XIP_BASE + FLASH_TARGET_OFFSET);
+		printf("I ROM[0..7]: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+			rom_check[0], rom_check[1], rom_check[2], rom_check[3],
+			rom_check[4], rom_check[5], rom_check[6], rom_check[7]);
 	} else {
 		printf("E f_open(%s) error: %s (%d)\n",filename,FRESULT_str(fr),fr);
 	}
@@ -656,6 +670,9 @@ while(true)
 #endif
 
 	/* Initialise GB context. */
+	printf("I ROM[0..7] pre-init: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+		rom[0], rom[1], rom[2], rom[3],
+		rom[4], rom[5], rom[6], rom[7]);
 	memcpy(rom_bank0, rom, sizeof(rom_bank0));
 	ret = gb_init(&gb, &gb_rom_read, &gb_cart_ram_read,
 		      &gb_cart_ram_write, &gb_error, NULL);
@@ -663,13 +680,16 @@ while(true)
 
 	if(ret != GB_INIT_NO_ERROR)
 	{
-		printf("Error: %d\n", ret);
+		printf("Error: gb_init returned %d\n", ret);
 		goto out;
 	}
 
 	/* Automatically assign a colour palette to the game */
 	char rom_title[16];
 	auto_assign_palette(palette, gb_colour_hash(&gb),gb_get_rom_name(&gb,rom_title));
+	printf("I ROM title: \"%s\"\n", rom_title);
+	printf("I palette[0]: %04x %04x %04x %04x\n",
+		palette[0][0], palette[0][1], palette[0][2], palette[0][3]);
 	
 #if ENABLE_LCD
 	gb_init_lcd(&gb, &lcd_draw_line);
