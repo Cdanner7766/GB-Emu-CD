@@ -507,6 +507,16 @@ void mk_ili9225_set_address(uint8_t x, uint8_t y)
 	set_register(MK_ILI9225_REG_RAM_ADDR_SET2, y);
 }
 
+void mk_ili9225_set_line(uint8_t x, uint8_t y, uint8_t w)
+{
+	uint8_t col_end   = 219 - x;           /* ADDR2 start = right edge */
+	uint8_t col_start = 219 - (x + w - 1); /* ADDR2 stop  = left edge  */
+	set_register(MK_ILI9225_REG_VERT_WIN_ADDR1, col_end);
+	set_register(MK_ILI9225_REG_VERT_WIN_ADDR2, col_start);
+	set_register(MK_ILI9225_REG_RAM_ADDR_SET1, y);
+	set_register(MK_ILI9225_REG_RAM_ADDR_SET2, col_end);
+}
+
 void mk_ili9225_write_pixels(const uint16_t *pixels, uint_fast16_t nmemb)
 {
 	assert(pixels != NULL);

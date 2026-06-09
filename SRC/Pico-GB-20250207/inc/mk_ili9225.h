@@ -164,6 +164,14 @@ void mk_ili9225_pixel(uint8_t x,uint8_t y,uint16_t color);
 void mk_ili9225_blit(uint16_t *fbuf,uint8_t x,uint8_t y,uint8_t w,uint8_t h);
 
 /**
+ * Prepare to write one horizontal line of pixels starting at the given
+ * (x, y) position.  Sets VERT_WIN, ADDR1, and ADDR2 so that write_pixels
+ * will fill a single row from x to x+w-1 regardless of prior LCD state.
+ * Intended for use with mk_ili9225_write_pixels immediately after.
+ */
+void mk_ili9225_set_line(uint8_t x, uint8_t y, uint8_t w);
+
+/**
  * Return an 8x8 framebuffer for the given letter and color / background color
  */
 void mk_ili9225_get_letter(uint16_t *fbuf,char letter,uint16_t color,uint16_t bgcolor);
