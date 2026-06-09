@@ -378,9 +378,10 @@ void write_cart_ram_file(struct gb_s *gb) {
 }
 
 /**
- * Load a .gb rom file in flash from the SD card 
- */ 
-void load_cart_rom_file(char *filename) {
+ * Load a .gb rom file in flash from the SD card.
+ * Returns true on success, false if the SD read failed.
+ */
+bool load_cart_rom_file(char *filename) {
 	UINT br;
 	uint8_t buffer[FLASH_SECTOR_SIZE];
 	bool mismatch=false;
@@ -388,56 +389,61 @@ void load_cart_rom_file(char *filename) {
 	FRESULT fr=f_mount(&pSD->fatfs,pSD->pcName,1);
 	if (FR_OK!=fr) {
 		printf("E f_mount error: %s (%d)\n",FRESULT_str(fr),fr);
-		return;
+		return false;
 	}
 	FIL fil;
 	fr=f_open(&fil,filename,FA_READ);
-	if (fr==FR_OK) {
-		uint32_t flash_target_offset=FLASH_TARGET_OFFSET;
-		uint32_t total_bytes=0;
-		for(;;) {
-			f_read(&fil,buffer,sizeof buffer,&br);
-			if(br==0) break; /* end of file */
-
-			printf("I Erasing flash @ 0x%lx...\n", flash_target_offset);
-			flash_range_erase(flash_target_offset,FLASH_SECTOR_SIZE);
-			printf("I Programming %u bytes @ 0x%lx...\n", br, flash_target_offset);
-			flash_range_program(flash_target_offset,buffer,FLASH_SECTOR_SIZE);
-
-			/* Verify: read back from XIP and compare */
-			const uint8_t *written = (const uint8_t *)(XIP_BASE + flash_target_offset);
-			uint32_t sector_mismatches = 0;
-			for(uint32_t i=0;i<br;i++) {
-				if(written[i]!=buffer[i]) sector_mismatches++;
-			}
-			if(sector_mismatches)
-				printf("E Sector verify FAILED: %lu mismatches\n", sector_mismatches);
-			else
-				printf("I Sector verify OK\n");
-			mismatch |= (sector_mismatches > 0);
-
-			total_bytes += br;
-			flash_target_offset+=FLASH_SECTOR_SIZE;
-		}
-		printf("I ROM load %s: %lu bytes total\n",
-			mismatch ? "FAILED" : "OK", total_bytes);
-
-		/* Print first 8 bytes of ROM from flash for sanity check */
-		const uint8_t *rom_check = (const uint8_t *)(XIP_BASE + FLASH_TARGET_OFFSET);
-		printf("I ROM[0..7]: %02x %02x %02x %02x %02x %02x %02x %02x\n",
-			rom_check[0], rom_check[1], rom_check[2], rom_check[3],
-			rom_check[4], rom_check[5], rom_check[6], rom_check[7]);
-	} else {
+	if (fr!=FR_OK) {
 		printf("E f_open(%s) error: %s (%d)\n",filename,FRESULT_str(fr),fr);
+		f_unmount(pSD->pcName);
+		return false;
 	}
-	
-	fr=f_close(&fil);
-	if(fr!=FR_OK) {
-		printf("E f_close error: %s (%d)\n", FRESULT_str(fr), fr);
+
+	uint32_t flash_target_offset=FLASH_TARGET_OFFSET;
+	uint32_t total_bytes=0;
+	for(;;) {
+		f_read(&fil,buffer,sizeof buffer,&br);
+		if(br==0) break; /* end of file or read error */
+
+		printf("I Erasing flash @ 0x%lx...\n", flash_target_offset);
+		flash_range_erase(flash_target_offset,FLASH_SECTOR_SIZE);
+		printf("I Programming %u bytes @ 0x%lx...\n", br, flash_target_offset);
+		flash_range_program(flash_target_offset,buffer,FLASH_SECTOR_SIZE);
+
+		/* Verify: read back from XIP and compare */
+		const uint8_t *written = (const uint8_t *)(XIP_BASE + flash_target_offset);
+		uint32_t sector_mismatches = 0;
+		for(uint32_t i=0;i<br;i++) {
+			if(written[i]!=buffer[i]) sector_mismatches++;
+		}
+		if(sector_mismatches)
+			printf("E Sector verify FAILED: %lu mismatches\n", sector_mismatches);
+		else
+			printf("I Sector verify OK\n");
+		mismatch |= (sector_mismatches > 0);
+
+		total_bytes += br;
+		flash_target_offset+=FLASH_SECTOR_SIZE;
 	}
+
+	f_close(&fil);
 	f_unmount(pSD->pcName);
 
-	printf("I load_cart_rom_file(%s) COMPLETE (%lu bytes)\n",filename,br);
+	if(total_bytes == 0) {
+		printf("E ROM load FAILED: SD read returned 0 bytes (SD timeout — try again)\n");
+		return false;
+	}
+
+	printf("I ROM load %s: %lu bytes total\n",
+		mismatch ? "FAILED" : "OK", total_bytes);
+
+	/* Print first 8 bytes of ROM from flash for sanity check */
+	const uint8_t *rom_check = (const uint8_t *)(XIP_BASE + FLASH_TARGET_OFFSET);
+	printf("I ROM[0..7]: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+		rom_check[0], rom_check[1], rom_check[2], rom_check[3],
+		rom_check[4], rom_check[5], rom_check[6], rom_check[7]);
+
+	return !mismatch;
 }
 
 /**
@@ -524,8 +530,18 @@ void rom_file_selector() {
 		}
 		if(!a | !b) {
 			/* copy the rom from the SD card to flash and start the game */
-			load_cart_rom_file(filename[selected]);
-			break;
+			if(load_cart_rom_file(filename[selected])) {
+				break;
+			}
+			/* Load failed — show error on screen and let user try again */
+			mk_ili9225_fill(0x0000);
+			mk_ili9225_text("SD READ ERROR",4,80,0xF800,0x0000);
+			mk_ili9225_text("Press A to retry",4,96,0xFFFF,0x0000);
+			sleep_ms(2000);
+			/* Redisplay file list */
+			num_file=rom_file_selector_display_page(filename,num_page);
+			selected=0;
+			mk_ili9225_text(filename[selected],0,selected*8,0xFFFF,0xF800);
 		}
 		if(!down) {
 			/* select the next rom */

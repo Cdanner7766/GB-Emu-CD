@@ -34,7 +34,7 @@ static spi_t spis[]={
         .miso_gpio=12,
         .mosi_gpio=15,
         .sck_gpio=14,
-        .baud_rate=4000*1000,
+        .baud_rate=1000*1000,
         .dma_isr=spi_dma_isr
     }
 };
