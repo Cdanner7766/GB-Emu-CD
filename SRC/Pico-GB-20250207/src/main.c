@@ -16,7 +16,7 @@
 // Peanut-GB emulator settings
 #define ENABLE_LCD	1
 #define ENABLE_SOUND	0
-#define ENABLE_SDCARD	0
+#define ENABLE_SDCARD	1
 #define PEANUT_GB_HIGH_LCD_ACCURACY 0
 #define PEANUT_GB_USE_BIOS 0
 
@@ -92,9 +92,15 @@
 uint16_t *stream;
 #endif
 
+#if ENABLE_SDCARD
+/* ROM is loaded from SD card into flash at the 1MB offset. */
+#define FLASH_TARGET_OFFSET (1024 * 1024)
+const uint8_t *rom = (const uint8_t *) (XIP_BASE + FLASH_TARGET_OFFSET);
+#else
 /* ROM is compiled directly into the firmware as a C array in flash. */
 extern const unsigned char rom_data[];
 const uint8_t *rom = (const uint8_t *) rom_data;
+#endif
 static unsigned char rom_bank0[65536];
 
 static uint8_t ram[32768];
