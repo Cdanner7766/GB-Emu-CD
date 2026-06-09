@@ -226,7 +226,8 @@ void gb_error(struct gb_s *gb, const enum gb_error_e gb_err, const uint16_t addr
 void core1_lcd_draw_line(const uint_fast8_t line)
 {
 	static uint16_t fb[LCD_WIDTH];
-	static uint32_t line_count = 0;
+	static uint32_t frame_count = 0;
+	static bool first_nonwhite_logged = false;
 
 	for(unsigned int x = 0; x < LCD_WIDTH; x++)
 	{
@@ -234,13 +235,29 @@ void core1_lcd_draw_line(const uint_fast8_t line)
 				[pixels_buffer[x] & 3];
 	}
 
-	/* Print diagnostics for the first two frames (lines 0-287) */
-	if(line_count < 288 && (line == 0 || line == 1 || line == 143))
+	/* Log every 60 frames so we can see if the game ever draws anything */
+	if(line == 0 && (frame_count % 60 == 0))
 	{
-		printf("D line=%u px0=0x%02x fb0=0x%04x\n",
-			line, pixels_buffer[0], fb[0]);
+		printf("D frame=%lu px0=0x%02x fb0=0x%04x\n",
+			frame_count, pixels_buffer[0], fb[0]);
 	}
-	if(line == 143) line_count += 144;
+
+	/* Log the exact frame when a non-white pixel first appears */
+	if(!first_nonwhite_logged)
+	{
+		for(unsigned int x = 0; x < LCD_WIDTH; x++)
+		{
+			if(fb[x] != 0xFFFF)
+			{
+				printf("D FIRST NON-WHITE: frame=%lu line=%u x=%u fb=0x%04x\n",
+					frame_count, line, x, fb[x]);
+				first_nonwhite_logged = true;
+				break;
+			}
+		}
+	}
+
+	if(line == 143) frame_count++;
 
 	mk_ili9225_set_line(31, line + 16, LCD_WIDTH);
 	mk_ili9225_write_pixels(fb, LCD_WIDTH);
